@@ -23,7 +23,9 @@
 
 CloudIoTCoreDevice device(project_id, location, registry_id, device_id,
                           private_key_str);
-CloudIoTCoreMQTTClient client(device);
+PubSubClient* mqttClient;
+WiFiClientSecure wfClient;
+CloudIoTCoreMQTTClient* client;
 
 boolean encodePayload = true; // set to true if using binary data
 long lastMsg = 0;
@@ -77,12 +79,15 @@ void setup() {
   }
 
   Serial.println("Connecting to mqtt.googleapis.com");
-  client.connectSecure(root_cert);
-  client.setConfigCallback(callback);
+  mqttClient = new PubSubClient();
+  client = new CloudIoTCoreMQTTClient(device, mqttClient, wfClient);
+  client->connectSecure(root_cert);
+  client->setConfigCallback(callback);
 }
 
+long lastDisconnect = millis();
 void loop() {
-  client.loop();
+  client->loop();
 
   long now = millis();
   if (now - lastMsg > 3000) {
@@ -98,12 +103,21 @@ void loop() {
       if (encodePayload) {
         rbase64.encode(payload);
         rbase64.result();
-        client.publishTelemetry(rbase64.result());
+        client->publishTelemetry(rbase64.result());
       } else {
-        client.publishTelemetry(payload);
+        client->publishTelemetry(payload);
       }
     } else {
       counter = 0;
     }
+  }
+  if (now - lastDisconnect > 60000) {
+    Serial.println("chaos monkey");
+    mqttClient->disconnect();
+    mqttClient = new PubSubClient();
+    client = new CloudIoTCoreMQTTClient(device, mqttClient, wfClient);
+    client->connectSecure(root_cert);
+    client->setConfigCallback(callback);
+    lastDisconnect = millis();
   }
 }

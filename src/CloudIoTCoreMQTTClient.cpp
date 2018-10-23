@@ -27,9 +27,16 @@ void callback(char *topic, uint8_t *payload, unsigned int length) {
   }
 }
 
-CloudIoTCoreMQTTClient::CloudIoTCoreMQTTClient(CloudIoTCoreDevice &device) {
+CloudIoTCoreMQTTClient::CloudIoTCoreMQTTClient(CloudIoTCoreDevice &device, PubSubClient* psclient, WiFiClientSecure& wfclient) {
   this->device = device;
-  this->mqttClient.setClient(this->client);
+  if (psclient != NULL) {
+    this->mqttClient = psclient;
+    this->client = wfclient;
+    this->mqttClient->setClient(client);
+  } else {
+    this->mqttClient = new PubSubClient();
+    this->mqttClient->setClient(client);
+  }
 }
 
 CloudIoTCoreMQTTClient::CloudIoTCoreMQTTClient(const char *project_id,
@@ -39,12 +46,13 @@ CloudIoTCoreMQTTClient::CloudIoTCoreMQTTClient(const char *project_id,
                                                const char *private_key) {
   this->device = CloudIoTCoreDevice(project_id, location, registry_id,
                                     device_id, private_key);
-  this->mqttClient.setClient(this->client);
+  this->mqttClient = new PubSubClient();
+  this->mqttClient->setClient(this->client);
 }
 
 void CloudIoTCoreMQTTClient::connect() {
-  mqttClient.setServer(GOOGLE_APIS_MQTT_HOST, GOOGLE_APIS_MQTT_PORT);
-  mqttClient.setCallback(callback);
+  mqttClient->setServer(GOOGLE_APIS_MQTT_HOST, GOOGLE_APIS_MQTT_PORT);
+  mqttClient->setCallback(callback);
 }
 
 #ifndef ESP8266
@@ -55,7 +63,8 @@ void CloudIoTCoreMQTTClient::connectSecure(const char *root_cert) {
 #endif
 
 String CloudIoTCoreMQTTClient::getJWT() {
-  if (iss == 0 || time(nullptr) - iss > 3600) {
+  if (iss == 0 || time(nullptr) - iss > JWT_EXP) {
+    Serial.println("Refresh JWT");
     iss = time(nullptr);
     jwt = device.createJWT(iss);
   }
@@ -67,22 +76,25 @@ void CloudIoTCoreMQTTClient::mqttConnect() {
   while (!client.connected()) {
     Serial.println("MQTT connecting ...");
     String pass = this->getJWT();
-    Serial.println(pass.c_str());
     const char *user = "unused";
     String clientId = device.getClientId();
     Serial.println(clientId.c_str());
-    if (mqttClient.connect(clientId.c_str(), user, pass.c_str())) {
+    if (mqttClient->connect(clientId.c_str(), user, pass.c_str())) {
       Serial.println("connected");
       if (configCallback != NULL) {
         String configTopic = device.getConfigTopic();
         Serial.println(configTopic.c_str());
-        mqttClient.setCallback(callback);
-        mqttClient.subscribe(configTopic.c_str(), 0);
+        mqttClient->setCallback(callback);
+        mqttClient->subscribe(configTopic.c_str(), 0);
       }
     } else {
       Serial.print("failed, status code =");
-      Serial.print(mqttClient.state());
+      Serial.print(mqttClient->state());
       Serial.println(" try again in 5 seconds");
+
+      if (iss == 0 || time(nullptr) - iss > JWT_EXP) {
+        getJWT();
+      }
       /* Wait 5 seconds before retrying */
       delay(5000);
     }
@@ -90,7 +102,7 @@ void CloudIoTCoreMQTTClient::mqttConnect() {
 }
 
 bool CloudIoTCoreMQTTClient::connected() {
-  return this->mqttClient.connected();
+  return this->mqttClient->connected();
 }
 
 void CloudIoTCoreMQTTClient::loop() {
@@ -98,7 +110,7 @@ void CloudIoTCoreMQTTClient::loop() {
     this->mqttConnect();
   }
 
-  this->mqttClient.loop();
+  this->mqttClient->loop();
   delay(10);
 }
 
@@ -108,7 +120,7 @@ void CloudIoTCoreMQTTClient::publishTelemetry(String binaryData) {
 
 void CloudIoTCoreMQTTClient::publishTelemetry(const char *binaryData) {
   String topic = device.getEventsTopic();
-  mqttClient.publish(topic.c_str(), binaryData);
+  mqttClient->publish(topic.c_str(), binaryData);
 }
 
 void CloudIoTCoreMQTTClient::publishState(String binaryData) {
@@ -117,7 +129,7 @@ void CloudIoTCoreMQTTClient::publishState(String binaryData) {
 
 void CloudIoTCoreMQTTClient::publishState(const char *binaryData) {
   String topic = device.getStateTopic();
-  mqttClient.publish(topic.c_str(), binaryData);
+  mqttClient->publish(topic.c_str(), binaryData);
 }
 
 void CloudIoTCoreMQTTClient::setConfigCallback(

@@ -48,15 +48,16 @@ class CloudIoTCoreMQTTClient {
  private:
   CloudIoTCoreDevice device;
   WiFiClientSecure client;
-  PubSubClient mqttClient;
+  PubSubClient* mqttClient;
   String jwt;
   unsigned long iss;
+  const int JWT_EXP = 30; // JWT expiration (seconds)
 
   void mqttConnect();
   String getJWT();
 
  public:
-  CloudIoTCoreMQTTClient(CloudIoTCoreDevice &device);
+  CloudIoTCoreMQTTClient(CloudIoTCoreDevice &device, PubSubClient* client, WiFiClientSecure& wfclient);
   CloudIoTCoreMQTTClient(const char *project_id, const char *location,
                          const char *registry_id, const char *device_id,
                          const char *private_key);
